@@ -41,6 +41,115 @@ function showMessage(text) {
   setState({ message: text });
 }
 
+async function loadCommands() {
+  try {
+    const response = await fetch('/api/commands');
+    const commands = await response.json();
+    setState({ commands });
+  } catch (error) {
+    showMessage('Failed to load fastrecon plugins: ' + error.message);
+  }
+}
+
+async function executeCommand() {
+  const command = currentCommand();
+  if (!command) return;
+
+  setState({ loading: true, message: '' });
+
+  try {
+    const response = await fetch('/api/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: state.ip, pluginName: command.slug })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      const entry = {
+        ...command,
+        status: 'failed',
+        error: result.error || 'Execution failed',
+        output: ''
+      };
+      saveResult(entry);
+      showMessage(entry.error);
+    } else {
+      const entry = {
+        ...command,
+        status: 'executed',
+        error: result.stderr || '',
+        output: result.stdout || '',
+        exitCode: result.exitCode,
+        durationMs: result.durationMs
+      };
+      saveResult(entry);
+    }
+  } catch (error) {
+    const entry = {
+      ...command,
+      status: 'failed',
+      error: error.message,
+      output: ''
+    };
+    saveResult(entry);
+    showMessage(error.message);
+  } finally {
+    setState({ loading: false });
+  }
+}
+
+function skipCommand() {
+  const command = currentCommand();
+  if (!command) return;
+
+  const entry = {
+    ...command,
+    status: 'skipped',
+    output: '',
+    error: 'Plugin skipped by user.'
+  };
+  saveResult(entry);
+}
+
+function downloadJson() {
+  const blob = new Blob([JSON.stringify(state.history, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `fastrecon-results-${Date.now()}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function startSession() {
+  if (!validateIp(state.ip)) {
+    showMessage('Please enter a valid IPv4 address.');
+    return;
+  }
+  setState({
+    message: '',
+    sessionStarted: true,
+    currentIndex: 0,
+    history: [],
+    activeResult: null,
+    jsonViewActive: false
+  });
+}
+
+function resetSession() {
+  setState({
+    ip: '',
+    currentIndex: -1,
+    history: [],
+    activeResult: null,
+    sessionStarted: false,
+    message: '',
+    jsonViewActive: false
+  });
+}
+
 function render() {
   const command = currentCommand();
   const finished = state.sessionStarted && state.currentIndex >= state.commands.length;
@@ -52,9 +161,9 @@ function render() {
 
   const header = document.createElement('header');
   const title = document.createElement('h1');
-  title.textContent = 'SSH Command Executor';
+  title.textContent = 'Fastrecon Web Executor';
   const subtitle = document.createElement('p');
-  subtitle.textContent = 'Enter an IP address, execute commands one-by-one, and export the results to JSON.';
+  subtitle.textContent = 'Enter an IP address, execute fastrecon plugins one-by-one, and export the results to JSON.';
   header.append(title, subtitle);
   app.appendChild(header);
 
@@ -87,12 +196,12 @@ function render() {
   const queuePanel = document.createElement('section');
   queuePanel.className = 'panel';
   const queueTitle = document.createElement('h2');
-  queueTitle.textContent = 'Command Queue';
+  queueTitle.textContent = 'Fastrecon Plugins';
   queuePanel.appendChild(queueTitle);
 
   if (!state.commands.length) {
     const loading = document.createElement('p');
-    loading.textContent = 'Loading commands...';
+    loading.textContent = 'Loading plugins...';
     queuePanel.appendChild(loading);
   }
 
@@ -100,13 +209,13 @@ function render() {
     const commandCard = document.createElement('div');
     commandCard.className = 'command-card';
 
-    const syntaxField = document.createElement('div');
-    syntaxField.className = 'command-field';
-    const syntaxLabel = document.createElement('strong');
-    syntaxLabel.textContent = 'Syntax:';
-    const syntaxCode = document.createElement('code');
-    syntaxCode.textContent = command.syntax;
-    syntaxField.append(syntaxLabel, syntaxCode);
+    const nameField = document.createElement('div');
+    nameField.className = 'command-field';
+    const nameLabel = document.createElement('strong');
+    nameLabel.textContent = 'Plugin:';
+    const nameCode = document.createElement('code');
+    nameCode.textContent = command.name;
+    nameField.append(nameLabel, nameCode);
 
     const descField = document.createElement('div');
     descField.className = 'command-field';
@@ -116,7 +225,7 @@ function render() {
     descText.textContent = command.description;
     descField.append(descLabel, descText);
 
-    commandCard.append(syntaxField, descField);
+    commandCard.append(nameField, descField);
     queuePanel.appendChild(commandCard);
 
     const queueButtons = document.createElement('div');
@@ -137,7 +246,7 @@ function render() {
     const completion = document.createElement('div');
     completion.className = 'completion';
     const completeText = document.createElement('p');
-    completeText.textContent = 'All commands have been processed.';
+    completeText.textContent = 'All plugins have been processed.';
     const downloadButton = document.createElement('button');
     downloadButton.textContent = 'Download JSON Results';
     downloadButton.disabled = state.history.length === 0;
@@ -152,7 +261,7 @@ function render() {
 
   if (!state.sessionStarted) {
     const startInfo = document.createElement('p');
-    startInfo.textContent = 'Start the session to step through each SSH command for the target host.';
+    startInfo.textContent = 'Start the session to step through each fastrecon plugin for the target host.';
     queuePanel.appendChild(startInfo);
   }
 
@@ -175,7 +284,7 @@ function render() {
     const resultCard = document.createElement('div');
     resultCard.className = 'result-card';
     const resultTitle = document.createElement('h3');
-    resultTitle.textContent = `Last command: ${state.activeResult.syntax}`;
+    resultTitle.textContent = `Last plugin: ${state.activeResult.name}`;
     const statusLine = document.createElement('p');
     statusLine.innerHTML = `<strong>Status:</strong> ${state.activeResult.status}`;
     const exitLine = document.createElement('p');
@@ -196,7 +305,7 @@ function render() {
     const jsonView = document.createElement('div');
     jsonView.className = 'json-view';
     const jsonTitle = document.createElement('h3');
-    jsonTitle.textContent = 'Command Results JSON';
+    jsonTitle.textContent = 'Plugin Results JSON';
     const jsonTextarea = document.createElement('textarea');
     jsonTextarea.readOnly = true;
     jsonTextarea.value = JSON.stringify(state.history, null, 2);
@@ -206,115 +315,6 @@ function render() {
 
   app.appendChild(historyPanel);
   root.appendChild(app);
-}
-
-function startSession() {
-  if (!validateIp(state.ip)) {
-    showMessage('Please enter a valid IPv4 address.');
-    return;
-  }
-  setState({
-    message: '',
-    sessionStarted: true,
-    currentIndex: 0,
-    history: [],
-    activeResult: null,
-    jsonViewActive: false
-  });
-}
-
-function resetSession() {
-  setState({
-    ip: '',
-    currentIndex: -1,
-    history: [],
-    activeResult: null,
-    sessionStarted: false,
-    message: '',
-    jsonViewActive: false
-  });
-}
-
-async function executeCommand() {
-  const command = currentCommand();
-  if (!command) {
-    return;
-  }
-
-  setState({ loading: true, message: '' });
-
-  try {
-    const response = await fetch('/api/execute', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip: state.ip, command: command.command })
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      const entry = {
-        ...command,
-        status: 'failed',
-        error: result.error || 'Execution failed',
-        output: ''
-      };
-      saveResult(entry);
-      showMessage(entry.error);
-    } else {
-      const entry = {
-        ...command,
-        status: 'executed',
-        output: result.stdout || '',
-        error: result.stderr || '',
-        exitCode: result.exitCode,
-        durationMs: result.durationMs
-      };
-      saveResult(entry);
-    }
-  } catch (error) {
-    const entry = {
-      ...command,
-      status: 'failed',
-      error: error.message,
-      output: ''
-    };
-    saveResult(entry);
-    showMessage(error.message);
-  } finally {
-    setState({ loading: false });
-  }
-}
-
-function skipCommand() {
-  const command = currentCommand();
-  if (!command) {
-    return;
-  }
-
-  const entry = {
-    ...command,
-    status: 'skipped',
-    output: '',
-    error: 'Command skipped by user.'
-  };
-  saveResult(entry);
-}
-
-function downloadJson() {
-  const blob = new Blob([JSON.stringify(state.history, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `command-results-${Date.now()}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function loadCommands() {
-  fetch('/api/commands')
-    .then((response) => response.json())
-    .then((commands) => setState({ commands }))
-    .catch(() => showMessage('Unable to load command configuration.'));
 }
 
 render();

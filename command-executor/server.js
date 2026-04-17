@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { Client } = require('ssh2');
+const { spawn } = require('child_process');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -9,25 +9,10 @@ const ipaddr = require('ipaddr.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SSH_USER = process.env.SSH_USER || 'ubuntu';
-const SSH_PRIVATE_KEY_PATH = process.env.SSH_PRIVATE_KEY_PATH;
 
-function getSshPrivateKey() {
-  if (process.env.SSH_PRIVATE_KEY) {
-    return process.env.SSH_PRIVATE_KEY;
-  }
-
-  if (SSH_PRIVATE_KEY_PATH) {
-    try {
-      return fs.readFileSync(SSH_PRIVATE_KEY_PATH, 'utf8');
-    } catch (error) {
-      console.error('ERROR: Failed to read SSH_PRIVATE_KEY_PATH:', error.message);
-      return null;
-    }
-  }
-
-  return null;
-}
+// Path to fastrecon default plugins
+const PLUGINS_DIR = path.join(__dirname, '..', 'semiautorecon', 'default-plugins');
+const SEMIAUTORECON_DIR = path.join(__dirname, '..');
 
 const logDir = path.join(__dirname, 'logs');
 if (!fs.existsSync(logDir)) {
@@ -38,6 +23,7 @@ const logFile = path.join(logDir, 'operations.log');
 function log(message) {
   const entry = `[${new Date().toISOString()}] ${message}\n`;
   fs.appendFileSync(logFile, entry);
+  console.log(entry);
 }
 
 const rateLimiter = rateLimit({
@@ -54,33 +40,31 @@ app.use(express.json({ limit: '64kb' }));
 app.use('/api', rateLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 
-const SSH_COMMANDS = [
-  {
-    syntax: 'uname -a',
-    command: 'uname -a',
-    description: 'Show operating system and kernel information.'
-  },
-  {
-    syntax: 'uptime',
-    command: 'uptime',
-    description: 'Show system uptime and load averages.'
-  },
-  {
-    syntax: 'df -h',
-    command: 'df -h',
-    description: 'Show disk usage for mounted filesystems in human-readable format.'
-  },
-  {
-    syntax: 'whoami',
-    command: 'whoami',
-    description: 'Display the remote username used for the SSH session.'
-  },
-  {
-    syntax: 'cat /etc/os-release',
-    command: 'cat /etc/os-release',
-    description: 'Show operating system release information.'
+// Load available fastrecon plugins
+function loadPlugins() {
+  const plugins = [];
+
+  if (!fs.existsSync(PLUGINS_DIR)) {
+    console.warn(`Plugins directory not found at ${PLUGINS_DIR}`);
+    return plugins;
   }
-];
+
+  const files = fs.readdirSync(PLUGINS_DIR).filter((f) => f.endsWith('.py') && f !== '__init__.py');
+
+  files.forEach((file) => {
+    const name = file.replace('.py', '');
+    plugins.push({
+      name: name,
+      slug: name,
+      description: `Run fastrecon plugin: ${name}`,
+      file: path.join(PLUGINS_DIR, file)
+    });
+  });
+
+  return plugins;
+}
+
+const PLUGINS = loadPlugins();
 
 function validateIp(ip) {
   try {
@@ -91,125 +75,103 @@ function validateIp(ip) {
   }
 }
 
-function sanitizeCommand(command) {
-  return SSH_COMMANDS.some((entry) => entry.command === command);
-}
-
-function executeSshCommand(ip, command, timeoutMs = 20000) {
+function executePlugin(pluginFile, ip, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
-    const privateKey = getSshPrivateKey();
-    if (!privateKey) {
-      return reject(new Error('SSH private key is not configured.'));
-    }
-
-    const conn = new Client();
     let timeoutHandle;
     let completed = false;
 
-    function cleanup() {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-      conn.end();
-      completed = true;
-    }
-
     timeoutHandle = setTimeout(() => {
       if (!completed) {
-        cleanup();
-        reject(new Error('Command timed out after ' + timeoutMs + 'ms.'));
+        completed = true;
+        reject(new Error(`Command timed out after ${timeoutMs}ms.`));
       }
     }, timeoutMs);
 
-    conn
-      .on('ready', () => {
-        conn.exec(command, (err, stream) => {
-          if (err) {
-            cleanup();
-            return reject(err);
-          }
+    try {
+      // Run the plugin as a Python subprocess with the IP as argument
+      const process = spawn('python3', [pluginFile, ip], {
+        cwd: SEMIAUTORECON_DIR,
+        timeout: timeoutMs
+      });
 
-          let stdout = '';
-          let stderr = '';
+      let stdout = '';
+      let stderr = '';
 
-          stream.on('close', (code, signal) => {
-            cleanup();
-            resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code, signal });
-          });
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
 
-          stream.on('data', (data) => {
-            stdout += data.toString();
-          });
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
 
-          stream.stderr.on('data', (data) => {
-            stderr += data.toString();
-          });
-        });
-      })
-      .on('error', (error) => {
+      process.on('error', (error) => {
         if (!completed) {
-          cleanup();
+          completed = true;
+          clearTimeout(timeoutHandle);
           reject(error);
         }
-      })
-      .connect({
-        host: ip,
-        port: 22,
-        username: SSH_USER,
-        privateKey: privateKey,
-        readyTimeout: 20000,
-        hostVerifier: () => true
       });
+
+      process.on('close', (code) => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timeoutHandle);
+          resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code });
+        }
+      });
+    } catch (error) {
+      if (!completed) {
+        completed = true;
+        clearTimeout(timeoutHandle);
+        reject(error);
+      }
+    }
   });
 }
 
 app.get('/api/commands', (req, res) => {
-  res.json(SSH_COMMANDS);
+  res.json(PLUGINS);
 });
 
 app.post('/api/execute', async (req, res) => {
-  const { ip, command } = req.body;
+  const { ip, pluginName } = req.body;
 
-  if (!ip || !command) {
-    return res.status(400).json({ error: 'IP address and command are required.' });
+  if (!ip || !pluginName) {
+    return res.status(400).json({ error: 'IP address and plugin name are required.' });
   }
 
   if (!validateIp(ip)) {
     return res.status(400).json({ error: 'Invalid IP address format.' });
   }
 
-  if (!sanitizeCommand(command)) {
-    return res.status(400).json({ error: 'Command is not allowed.' });
-  }
-
-  const privateKey = getSshPrivateKey();
-  if (!privateKey) {
-    return res.status(500).json({ error: 'SSH private key is not configured. Set SSH_PRIVATE_KEY or SSH_PRIVATE_KEY_PATH.' });
+  const plugin = PLUGINS.find((p) => p.slug === pluginName);
+  if (!plugin) {
+    return res.status(400).json({ error: 'Plugin not found.' });
   }
 
   const startTime = Date.now();
-  log(`EXECUTE REQUEST ip=${ip} command=${command}`);
+  log(`EXECUTE REQUEST ip=${ip} plugin=${pluginName}`);
 
   try {
-    const result = await executeSshCommand(ip, command, 25000);
+    const result = await executePlugin(plugin.file, ip, 65000);
     const durationMs = Date.now() - startTime;
-    log(`EXECUTED ip=${ip} command=${command} duration=${durationMs}ms exit=${result.code}`);
+    log(`EXECUTED ip=${ip} plugin=${pluginName} duration=${durationMs}ms exit=${result.code}`);
     res.json({
-      command,
+      pluginName,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.code,
-      signal: result.signal,
       durationMs
     });
   } catch (error) {
-    log(`ERROR ip=${ip} command=${command} message=${error.message}`);
-    res.status(500).json({ error: error.message || 'SSH execution failed.' });
+    log(`ERROR ip=${ip} plugin=${pluginName} message=${error.message}`);
+    res.status(500).json({ error: error.message || 'Plugin execution failed.' });
   }
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', pluginCount: PLUGINS.length });
 });
 
 app.use((err, req, res, next) => {
@@ -218,5 +180,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Command executor server listening on http://localhost:${PORT}`);
+  log(`Fastrecon web executor listening on http://localhost:${PORT}`);
+  log(`Loaded ${PLUGINS.length} plugins from ${PLUGINS_DIR}`);
 });

@@ -111,7 +111,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 function loadPlugins() {
   const plugins = {
     portScan: [],
-    serviceScan: {}
+    serviceScan: {},
+    reporting: []
   };
 
   if (!fs.existsSync(PLUGINS_DIR)) {
@@ -147,6 +148,13 @@ function loadPlugins() {
         ports: patterns.ports,
         commandTemplate: extractCommandTemplate(content)
       };
+    } else if (content.includes('class') && content.includes('Report')) {
+      plugins.reporting.push({
+        name: name,
+        slug: name,
+        type: 'reporting',
+        file: pluginFile
+      });
     }
   });
 
@@ -409,11 +417,37 @@ app.post('/api/phase2/execute', async (req, res) => {
   }
 });
 
+// API: Run reporting plugins in background
+app.post('/api/reporting/execute', async (req, res) => {
+  const { ip } = req.body;
+
+  if (!ip) {
+    return res.status(400).json({ error: 'IP address is required.' });
+  }
+
+  if (!validateIp(ip)) {
+    return res.status(400).json({ error: 'Invalid IP address format.' });
+  }
+
+  // Run reporting plugins in background without waiting
+  PLUGINS.reporting.forEach((plugin) => {
+    log(`REPORTING START ip=${ip} plugin=${plugin.name}`);
+    executePlugin(plugin.file, ip, 60000).then((result) => {
+      log(`REPORTING COMPLETE ip=${ip} plugin=${plugin.name}`);
+    }).catch((error) => {
+      log(`REPORTING ERROR ip=${ip} plugin=${plugin.name} message=${error.message}`);
+    });
+  });
+
+  res.json({ message: 'Reporting started in background.' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     portScanPlugins: PLUGINS.portScan.length,
-    serviceScanPlugins: Object.keys(PLUGINS.serviceScan).length
+    serviceScanPlugins: Object.keys(PLUGINS.serviceScan).length,
+    reportingPlugins: PLUGINS.reporting.length
   });
 });
 
@@ -424,5 +458,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   log(`Fastrecon web executor listening on http://localhost:${PORT}`);
-  log(`Loaded ${PLUGINS.portScan.length} port scan plugins and ${Object.keys(PLUGINS.serviceScan).length} service scan plugins`);
+  log(`Loaded ${PLUGINS.portScan.length} port scan plugins, ${Object.keys(PLUGINS.serviceScan).length} service scan plugins, and ${PLUGINS.reporting.length} reporting plugins`);
 });

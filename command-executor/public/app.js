@@ -207,6 +207,14 @@ async function executeServiceScan() {
     }
 
     if (state.currentPhaseIndex >= state.phase2Commands.length) {
+      // Start reporting in background
+      fetch('/api/reporting/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: state.ip })
+      }).catch((error) => {
+        console.error('Reporting failed:', error);
+      });
       setState({ phase: 'complete' });
     }
   } catch (error) {
@@ -423,11 +431,7 @@ function render() {
     resultTitle.textContent = state.activeResult.command || state.activeResult.name;
     const statusLine = document.createElement('p');
     statusLine.innerHTML = `<strong>Status:</strong> ${state.activeResult.status}`;
-    const outputLabel = document.createElement('div');
-    outputLabel.innerHTML = '<strong>Output:</strong>';
-    const outputPre = document.createElement('pre');
-    outputPre.textContent = state.activeResult.output ? state.activeResult.output.substring(0, 500) : '(none)';
-    resultCard.append(resultTitle, statusLine, outputLabel, outputPre);
+    resultCard.append(resultTitle, statusLine);
 
     if (state.activeResult.command) {
       const commandLabel = document.createElement('div');
@@ -446,6 +450,26 @@ function render() {
     }
 
     historyPanel.appendChild(resultCard);
+  }
+
+  // Execution history list
+  if (state.history.length > 0) {
+    const historyList = document.createElement('div');
+    historyList.className = 'history-list';
+    const historyListTitle = document.createElement('h3');
+    historyListTitle.textContent = 'Execution History';
+    historyList.appendChild(historyListTitle);
+
+    const list = document.createElement('ul');
+    state.history.forEach((entry, index) => {
+      const item = document.createElement('li');
+      item.className = `history-item ${entry.status}`;
+      item.textContent = `${entry.command || entry.name} - ${entry.status}`;
+      item.addEventListener('click', () => setState({ activeResult: entry }));
+      list.appendChild(item);
+    });
+    historyList.appendChild(list);
+    historyPanel.appendChild(historyList);
   }
 
   if (state.jsonViewActive) {

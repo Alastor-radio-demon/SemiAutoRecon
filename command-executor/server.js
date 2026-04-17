@@ -26,6 +26,73 @@ function log(message) {
   console.log(entry);
 }
 
+function extractCommandTemplate(content) {
+  const executeMatch = content.match(/target\.execute\(([^\)]*)\)/s);
+  if (!executeMatch) {
+    return null;
+  }
+
+  let args = executeMatch[1].trim();
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let firstArg = '';
+
+  for (let i = 0; i < args.length; i++) {
+    const char = args[i];
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+    }
+
+    if (!inSingle && !inDouble) {
+      if (char === '(') depth += 1;
+      else if (char === ')') depth -= 1;
+      else if (char === ',' && depth === 0) {
+        break;
+      }
+    }
+
+    firstArg += char;
+  }
+
+  const segments = [];
+  let current = '';
+  inSingle = false;
+  inDouble = false;
+
+  for (let i = 0; i < firstArg.length; i++) {
+    const char = firstArg[i];
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (char === '"' && !inSingle) {
+      inDouble = !inDouble;
+    }
+
+    if (!inSingle && !inDouble && char === '+') {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.trim()) {
+    segments.push(current.trim());
+  }
+
+  return segments
+    .map((segment) => {
+      const trimmed = segment.trim();
+      if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+        return trimmed.slice(1, -1);
+      }
+      return '${' + trimmed + '}';
+    })
+    .join('');
+}
+
 const rateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -65,13 +132,10 @@ function loadPlugins() {
         name: name,
         slug: name,
         type: 'portscan',
-        file: pluginFile
+        file: pluginFile,
+        commandTemplate: extractCommandTemplate(content)
       });
     } else if (content.includes('class') && content.includes('ServiceScan')) {
-      // Extract service matching patterns using regex
-      const serviceNameMatches = content.match(/match_service_name\(\s*['"\[\]^a-zA-Z0-9\-\|\\/$]+'['"]?/g) || [];
-      const portMatches = content.match(/match_port\s*\(\s*['"]?(tcp|udp)['"]?,\s*(\[?[\d,\s\]]*)?/g) || [];
-
       const patterns = extractPatterns(content);
 
       plugins.serviceScan[name] = {
@@ -80,7 +144,8 @@ function loadPlugins() {
         type: 'servicescan',
         file: pluginFile,
         serviceNames: patterns.serviceNames,
-        ports: patterns.ports
+        ports: patterns.ports,
+        commandTemplate: extractCommandTemplate(content)
       };
     }
   });

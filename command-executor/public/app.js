@@ -36,6 +36,19 @@ function currentCommand() {
   return null;
 }
 
+function formatCommand(template, ip) {
+  if (!template) return null;
+  let cmd = template;
+  if (ip) {
+    cmd = cmd.replace(/\$\{address\}|\{address\}/g, ip);
+    cmd = cmd.replace(/\$\{ipaddress\}|\{ipaddress\}/g, ip);
+    cmd = cmd.replace(/\$\{ipaddressv6\}|\{ipaddressv6\}/g, ip);
+    cmd = cmd.replace(/\$\{addressv6\}|\{addressv6\}/g, ip);
+    cmd = cmd.replace(/\$\{scandir\}|\{scandir\}/g, `scans/${ip}`);
+  }
+  return cmd;
+}
+
 function saveResult(entry) {
   setState({
     history: [...state.history, entry],
@@ -73,9 +86,12 @@ async function executePortScan() {
 
     const result = await response.json();
 
+    const commandText = formatCommand(command.commandTemplate || command.name, state.ip) || command.name;
+
     if (!response.ok) {
       const entry = {
         ...command,
+        command: commandText,
         status: 'failed',
         error: result.error || 'Execution failed',
         output: '',
@@ -89,6 +105,7 @@ async function executePortScan() {
     } else {
       const entry = {
         ...command,
+        command: commandText,
         status: 'executed',
         error: result.stderr || '',
         output: result.stdout || '',
@@ -106,8 +123,10 @@ async function executePortScan() {
       }
     }
   } catch (error) {
+    const commandText = formatCommand(command.commandTemplate || command.name, state.ip) || command.name;
     const entry = {
       ...command,
+      command: commandText,
       status: 'failed',
       error: error.message,
       output: '',
@@ -158,10 +177,12 @@ async function executeServiceScan() {
     });
 
     const result = await response.json();
+    const commandText = formatCommand(command.commandTemplate || command.name, state.ip) || command.name;
 
     if (!response.ok) {
       const entry = {
         ...command,
+        command: commandText,
         status: 'failed',
         error: result.error || 'Execution failed',
         output: '',
@@ -172,6 +193,7 @@ async function executeServiceScan() {
     } else {
       const entry = {
         ...command,
+        command: commandText,
         status: 'executed',
         error: result.stderr || '',
         output: result.stdout || '',
@@ -204,8 +226,10 @@ function skipCommand() {
   const command = currentCommand();
   if (!command) return;
 
+  const commandText = formatCommand(command.commandTemplate || command.name, state.ip) || command.name;
   const entry = {
     ...command,
+    command: commandText,
     status: 'skipped',
     output: '',
     error: 'Skipped by user.',
@@ -330,12 +354,13 @@ function render() {
     } else if (command && !isPhase1Complete && !isPhase2Complete) {
       const commandCard = document.createElement('div');
       commandCard.className = 'command-card';
+      const commandText = formatCommand(command.commandTemplate || command.name, state.ip) || command.name;
       const nameField = document.createElement('div');
       nameField.className = 'command-field';
       const nameLabel = document.createElement('strong');
-      nameLabel.textContent = 'Plugin:';
+      nameLabel.textContent = 'Command:';
       const nameCode = document.createElement('code');
-      nameCode.textContent = command.name;
+      nameCode.textContent = commandText;
       nameField.append(nameLabel, nameCode);
       commandCard.appendChild(nameField);
       queuePanel.appendChild(commandCard);
@@ -393,7 +418,7 @@ function render() {
     const resultCard = document.createElement('div');
     resultCard.className = 'result-card';
     const resultTitle = document.createElement('h3');
-    resultTitle.textContent = state.activeResult.name;
+    resultTitle.textContent = state.activeResult.command || state.activeResult.name;
     const statusLine = document.createElement('p');
     statusLine.innerHTML = `<strong>Status:</strong> ${state.activeResult.status}`;
     const outputLabel = document.createElement('div');
@@ -401,6 +426,14 @@ function render() {
     const outputPre = document.createElement('pre');
     outputPre.textContent = state.activeResult.output ? state.activeResult.output.substring(0, 500) : '(none)';
     resultCard.append(resultTitle, statusLine, outputLabel, outputPre);
+
+    if (state.activeResult.command) {
+      const commandLabel = document.createElement('div');
+      commandLabel.innerHTML = '<strong>Executed Command:</strong>';
+      const commandPre = document.createElement('pre');
+      commandPre.textContent = state.activeResult.command;
+      resultCard.append(commandLabel, commandPre);
+    }
 
     if (state.activeResult.services && state.activeResult.services.length > 0) {
       const servicesLabel = document.createElement('div');

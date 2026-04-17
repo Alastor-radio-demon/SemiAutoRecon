@@ -7,9 +7,12 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <div id="root">
+      <div class="loading-state">
+        <h1>Loading Command Executor...</h1>
+        <p>If this screen stays blank, make sure the backend is running on <strong>http://localhost:3000</strong>.</p>
+      </div>
+    </div>
     <script src="app.js"></script>
   </body>
 </html>

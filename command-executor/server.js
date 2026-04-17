@@ -10,11 +10,23 @@ const ipaddr = require('ipaddr.js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SSH_USER = process.env.SSH_USER || 'ubuntu';
-const SSH_PRIVATE_KEY = process.env.SSH_PRIVATE_KEY || (process.env.SSH_PRIVATE_KEY_PATH && fs.readFileSync(process.env.SSH_PRIVATE_KEY_PATH, 'utf8'));
+const SSH_PRIVATE_KEY_PATH = process.env.SSH_PRIVATE_KEY_PATH;
 
-if (!SSH_PRIVATE_KEY) {
-  console.error('ERROR: SSH_PRIVATE_KEY or SSH_PRIVATE_KEY_PATH environment variable is required.');
-  process.exit(1);
+function getSshPrivateKey() {
+  if (process.env.SSH_PRIVATE_KEY) {
+    return process.env.SSH_PRIVATE_KEY;
+  }
+
+  if (SSH_PRIVATE_KEY_PATH) {
+    try {
+      return fs.readFileSync(SSH_PRIVATE_KEY_PATH, 'utf8');
+    } catch (error) {
+      console.error('ERROR: Failed to read SSH_PRIVATE_KEY_PATH:', error.message);
+      return null;
+    }
+  }
+
+  return null;
 }
 
 const logDir = path.join(__dirname, 'logs');
@@ -85,6 +97,11 @@ function sanitizeCommand(command) {
 
 function executeSshCommand(ip, command, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
+    const privateKey = getSshPrivateKey();
+    if (!privateKey) {
+      return reject(new Error('SSH private key is not configured.'));
+    }
+
     const conn = new Client();
     let timeoutHandle;
     let completed = false;
@@ -139,7 +156,7 @@ function executeSshCommand(ip, command, timeoutMs = 20000) {
         host: ip,
         port: 22,
         username: SSH_USER,
-        privateKey: SSH_PRIVATE_KEY,
+        privateKey: privateKey,
         readyTimeout: 20000,
         hostVerifier: () => true
       });
@@ -163,6 +180,11 @@ app.post('/api/execute', async (req, res) => {
 
   if (!sanitizeCommand(command)) {
     return res.status(400).json({ error: 'Command is not allowed.' });
+  }
+
+  const privateKey = getSshPrivateKey();
+  if (!privateKey) {
+    return res.status(500).json({ error: 'SSH private key is not configured. Set SSH_PRIVATE_KEY or SSH_PRIVATE_KEY_PATH.' });
   }
 
   const startTime = Date.now();

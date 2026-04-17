@@ -115,8 +115,8 @@ pipx install git+https://github.com/Tib3rius/SemiAutoRecon.git
 Note that if you want to run SemiAutoRecon using sudo (required for faster SYN scanning and UDP scanning), you have to use _one_ of the following examples:
 
 ```bash
-sudo env "PATH=$PATH" semiautorecon [OPTIONS]
-sudo $(which semiautorecon) [OPTIONS]
+sudo env "PATH=$PATH" fastrecon [OPTIONS]
+sudo $(which fastrecon) [OPTIONS]
 ```
 
 ### Installation Method #2: pip
@@ -129,20 +129,20 @@ python3 -m pip install git+https://github.com/Tib3rius/SemiAutoRecon.git
 
 Note that if you want to run SemiAutoRecon using sudo (required for faster SYN scanning and UDP scanning), you will have to run the above command as the root user (or using sudo).
 
-Similarly to `pipx`, if installed using `pip` you can run SemiAutoRecon by simply executing `semiautorecon`.
+Similarly to `pipx`, if installed using `pip` you can run SemiAutoRecon by simply executing `fastrecon` (or `semiautorecon` for compatibility).
 
 ### Installation Method #3: Manually
 
-If you'd prefer not to use `pip` or `pipx`, you can always still install and execute `semiautorecon.py` manually as a script. From within the SemiAutoRecon directory, install the dependencies:
+If you'd prefer not to use `pip` or `pipx`, you can always still install and execute `fastrecon.py` or `semiautorecon.py` manually as a script. From within the SemiAutoRecon directory, install the dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-You will then be able to run the `semiautorecon.py` script:
+You will then be able to run the `fastrecon.py` script:
 
 ```bash
-python3 semiautorecon.py [OPTIONS] 127.0.0.1
+python3 fastrecon.py [OPTIONS] 127.0.0.1
 ```
 
 ## Upgrading
@@ -185,7 +185,7 @@ If you depend on the ~/.config/SemiAutoRecon/config.toml file (i.e. you have mad
 SemiAutoRecon uses Python 3 specific functionality and does not support Python 2.
 
 ```
-usage: semiautorecon [-t TARGET_FILE] [-p PORTS] [-m MAX_SCANS] [-mp MAX_PORT_SCANS] [-c CONFIG_FILE] [-g GLOBAL_FILE] [--tags TAGS]
+usage: fastrecon [-t TARGET_FILE] [-p PORTS] [-m MAX_SCANS] [-mp MAX_PORT_SCANS] [-c CONFIG_FILE] [-g GLOBAL_FILE] [--tags TAGS]
                  [--exclude-tags TAGS] [--port-scans PLUGINS] [--service-scans PLUGINS] [--reports PLUGINS] [--plugins-dir PLUGINS_DIR]
                  [--add-plugins-dir PLUGINS_DIR] [-l [TYPE]] [-o OUTPUT] [--single-target] [--only-scans-dir] [--no-port-dirs]
                  [--heartbeat HEARTBEAT] [--timeout TIMEOUT] [--target-timeout TARGET_TIMEOUT] [--nmap NMAP | --nmap-append NMAP_APPEND]

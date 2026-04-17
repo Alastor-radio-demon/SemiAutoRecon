@@ -1,0 +1,17 @@
+{
+  "name": "command-executor",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.10.0",
+    "helmet": "^7.0.0",
+    "ipaddr.js": "^2.0.0",
+    "ssh2": "^1.11.0"
+  }
+}

@@ -44,7 +44,9 @@ function formatCommand(template, ip) {
     cmd = cmd.replace(/\$\{ipaddress\}|\{ipaddress\}/g, ip);
     cmd = cmd.replace(/\$\{ipaddressv6\}|\{ipaddressv6\}/g, ip);
     cmd = cmd.replace(/\$\{addressv6\}|\{addressv6\}/g, ip);
-    cmd = cmd.replace(/\$\{scandir\}|\{scandir\}/g, `scans/${ip}`);
+    cmd = cmd.replace(/\$\{scandir\}|\{scandir\}/g, `results/${ip}/scans`);
+    cmd = cmd.replace(/\$\{nmap_extra\}|\{nmap_extra\}/g, '-vv --reason -Pn -T4');
+    cmd = cmd.replace(/traceroute_os/g, ' -A --osscan-guess');
   }
   return cmd;
 }

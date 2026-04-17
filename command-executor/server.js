@@ -192,7 +192,7 @@ function validateIp(ip) {
   }
 }
 
-function executePlugin(pluginFile, ip, timeoutMs = 60000) {
+function executePlugin(pluginFile, ip, timeoutMs = 300000) {
   return new Promise((resolve, reject) => {
     let timeoutHandle;
     let completed = false;
@@ -392,7 +392,7 @@ app.post('/api/phase2/execute', async (req, res) => {
   log(`SERVICE SCAN ip=${ip} plugin=${pluginName}`);
 
   try {
-    const result = await executePlugin(plugin.file, ip, 90000);
+    const result = await executePlugin(plugin.file, ip, 180000);
     const durationMs = Date.now() - startTime;
     log(`SERVICE SCAN COMPLETE ip=${ip} plugin=${pluginName} duration=${durationMs}ms`);
 
